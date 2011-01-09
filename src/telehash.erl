@@ -1,4 +1,6 @@
 -module(telehash).
+-author('zuwiki@zuwiki.net').
+
 -include("../include/telehash.hrl").
 -behaviour(gen_server).
 
