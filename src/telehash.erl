@@ -4,12 +4,15 @@
 -include("../include/telehash.hrl").
 -behaviour(gen_server).
 
-% API
--export([start_link/1, stop/1, from_json/1, get_state/1]).
+% server API
+-export([start_link/0, start_link/1, stop/1, get_state/1]).
 
 % gen_server
 -export([init/1, handle_info/2, handle_call/3, terminate/2,
     code_change/3, handle_cast/2]).
+
+% data utility API
+-export([from_json/1, to_json/1, hash/1, hash_ipp/2, mk_telex/1]).
 
 
 
@@ -17,33 +20,35 @@
 %%% Start up functions
 %%% %%%
 
+start_link() -> start_link([]).
+
 start_link(Opts) -> gen_server:start_link(?MODULE, Opts, []).
 
-init([Key, Seed = {_SeedHost, _SeedPort}]) -> init([Key, Seed, 0]);
-init([Key]) -> init([Key, 0]);
+init([Seed = {_SeedHost, _SeedPort}]) -> init([Seed, 0]);
+init([]) -> init([0]);
 
 %% init/1 with seed information will start the bootstrap process
-init([Key, {SeedHost, SeedPort}, Port]) ->
+init([{SeedHost, SeedPort}, Port]) ->
     case gen_udp:open(Port, [binary]) of
         {ok, Socket} ->
             gen_udp:controlling_process(Socket, self()),
-            gen_udp:send(Socket, SeedHost, SeedPort, bootstrap_packet(Key)),
+            gen_udp:send(Socket, SeedHost, SeedPort, bootstrap_packet()),
             % TODO: Interpret response; ok | {error, Reason}
-            {ok, #switch{socket=Socket, hash=hash(Key)}}
+            {ok, #switch{socket=Socket}}
     end;
 
-%% init/1 with only a Key, implies that we are a seed
-init([Key, Port]) ->
+%% init/1 without seed information implies we are a seed and won't bootstrap
+init([Port]) ->
     case gen_udp:open(Port, [binary]) of
         {ok, Socket} ->
             gen_udp:controlling_process(Socket, self()),
-            {ok, #switch{socket=Socket, hash=hash(Key)}};
+            {ok, #switch{socket=Socket}};
         {error, Reason} -> {stop, Reason}
     end.
 
-bootstrap_packet(Key) ->
+bootstrap_packet() ->
     to_json({struct,
-        [{'+end', hash(Key)}]
+        [{'+end', hash("bootstrap")}]
     }).
 
 
@@ -161,6 +166,13 @@ to_hex(Digest) ->
 %% Takes binary or iolist Data, produces a binary string of the SHA1 hex digest
 hash(Data) ->
     to_hex(crypto:sha(Data)).
+
+%% hash_ipp/2
+%% Takes a tuple-form IP and integer Port, produces a hash of the "IP:PORT"
+hash_ipp(IP, Port) ->
+    hash(lists:concat(
+        [ip_to_list(IP), ":", integer_to_list(Port)]
+    )).
 
 %% ip_to_list/1
 %% Simply converts a tuple ipv4 address to a string/list
