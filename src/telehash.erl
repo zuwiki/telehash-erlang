@@ -80,7 +80,7 @@ handle_cast(Msg, State) ->
 
 %%% %%%
 %%% TeleHash/UDP callbacks
-%%%
+%%% %%%
 
 handle_info({udp, Socket, IP, Port, Packet}, State) ->
     JsObj = (catch from_json(Packet)),
@@ -102,8 +102,11 @@ handle_info({udp, Socket, IP, Port, Packet}, State) ->
 %%% %%%
 
 %% handle_telex/3
-%% In general, takes a #telex record, an IPP, and state info,
-%% and returns a #switch record
+%% In general, takes a #telex record, an IPP, and a #switch record,
+%% and returns a tuple of one of two forms:
+%%      {noreply, S}
+%%      {reply, JSON, S}
+%% JSON is a bit string to be sent to the IPP, S is a #switch for the new state
 
 %% When we don't have a valid telex, drop it.
 handle_telex(undefined, _IPP, S) -> {noreply, S};
@@ -132,7 +135,7 @@ handle_telex(T=#telex{}, IPP, S=#switch{}) ->
             {reply, to_json(Out), S};
         _ -> {noreply, S}
     end.
-    
+
 
 
 %%% %%%
