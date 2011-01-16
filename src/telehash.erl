@@ -5,7 +5,7 @@
 -behaviour(gen_server).
 
 % server API
--export([start_link/0, start_link/1, stop/1, get_state/1]).
+-export([start_link/0, start_link/1, stop/1]).
 
 % gen_server
 -export([init/1, handle_info/2, handle_call/3, terminate/2,
@@ -60,12 +60,21 @@ bootstrap_packet() ->
 %%% Interface functions
 %%% %%%
 
-% add_tap(Pid, Tap) ->
-%     gen_server:call(Pid, {add_self_tap, Tap}).
-
 stop(Pid) -> gen_server:call(Pid, terminate).
 
-get_state(Pid) -> gen_server:call(Pid, get_state).
+handle_call(terminate, _From, State) ->
+    {stop, normal, ok, State}.
+
+terminate(_, State) ->
+    catch gen_udp:close(State#switch.socket),
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+handle_cast(Msg, State) ->
+    error_logger:info_msg("Received unknown cast ~p", [Msg]),
+    {noreply, State}.
 
 
 
@@ -123,28 +132,7 @@ handle_telex(T=#telex{}, IPP, S=#switch{}) ->
             {reply, to_json(Out), S};
         _ -> {noreply, S}
     end.
-
-
-%%% %%%
-%%% Utility and debugging functions
-%%% %%%
-
-handle_call(get_state, _From, State) ->
-    {reply, State, State};
-handle_call(terminate, _From, State) ->
-    {stop, normal, ok, State}.
-
-terminate(_, State) ->
-    catch gen_udp:close(State#switch.socket),
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-handle_cast(Msg, State) ->
-    error_logger:info_msg("Received unknown cast ~p", [Msg]),
-    {noreply, State}.
-
+    
 
 
 %%% %%%
