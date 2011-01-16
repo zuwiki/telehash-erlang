@@ -35,7 +35,8 @@ init([{SeedHost, SeedPort}, Port]) ->
     case gen_udp:open(Port, [binary]) of
         {ok, Socket} ->
             gen_udp:controlling_process(Socket, self()),
-            gen_udp:send(Socket, SeedHost, SeedPort, bootstrap_packet()),
+            Packet = bootstrap_packet({SeedHost, SeedPort}),
+            gen_udp:send(Socket, SeedHost, SeedPort, Packet),
             % TODO: Interpret response; ok | {error, Reason}
             {ok, #switch{socket=Socket}}
     end;
@@ -49,10 +50,8 @@ init([Port]) ->
         {error, Reason} -> {stop, Reason}
     end.
 
-bootstrap_packet() ->
-    to_json({struct,
-        [{"+end", hash("bootstrap")}]
-    }).
+bootstrap_packet(IPP) ->
+    to_json(set("+end", hash("bootstrap"), telex(IPP))).
 
 
 
