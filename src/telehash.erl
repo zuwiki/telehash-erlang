@@ -13,7 +13,7 @@
 
 % data utility API
 -export([from_json/1, to_json/1, hash/1, mk_telex/1,
-    binary_to_ipp/1, ipp_to_binary/1, telex/1]).
+    binary_to_ipp/1, ipp_to_binary/1, telex/1, set/3, has/2]).
 
 % testing API
 -export([handle_telex/3]).
@@ -215,12 +215,15 @@ telex(ToIPP) ->
 
 %% set/3
 %% Takes a key, value, and telex record, adding the key:val to the telex
+%% Gaurantees storage with keys as bit strings
+set(Key, Val, Tel) when is_list(Key) -> set(list_to_binary(Key), Val, Tel);
 set(Key, Val, Tel=#telex{dict=Dict}) ->
-    Tel#telex{dict=orddict:store(Key,Val,Dict)}.
+    Tel#telex{dict=orddict:store(Key, Val, Dict)}.
 
 %% has/2
 %% Takes a key and #telex and returns true/false depending on whether the given
 %% #telex includes the given key.
+has(Key, Tel) when is_list(Key) -> has(list_to_binary(Key), Tel);
 has(Key, #telex{dict=Dict}) ->
     orddict:is_key(Key, Dict).
 
