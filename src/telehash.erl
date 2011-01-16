@@ -12,8 +12,11 @@
     code_change/3, handle_cast/2]).
 
 % data utility API
--export([from_json/1, to_json/1, hash/1, hash_ipp/2, mk_telex/1]).
+-export([from_json/1, to_json/1, hash/1, hash_ipp/2, mk_telex/1,
+    ipp_from_binary/1]).
 
+% testing API
+-export([handle_telex/3]).
 
 
 %%% %%%
@@ -71,17 +74,23 @@ get_state(Pid) -> gen_server:call(Pid, get_state).
 %%%
 
 handle_info({udp, Socket, IP, Port, Packet}, State) ->
-    StrIP = ip_to_list(IP),
-    io:format("~s:~b sent: ~s", [StrIP, Port, Packet]),
     JsObj = (catch from_json(Packet)),
-    io:format("    Decoded json: ~p~n", [JsObj]),
-    NewPacket = to_json({struct, [{foo, bar}, {rab, oof}]}),
-    io:format("    Sending ~s to ~s:~b~n", [NewPacket, StrIP, Port]),
-    case gen_udp:send(Socket, IP, Port, NewPacket) of
-        ok -> ok;
-        {error, Reason} -> io:format("    Send failed: ~p~n", [Reason])
+%    StrIP = ip_to_list(IP),
+%    io:format("~s:~b sent: ~s", [StrIP, Port, Packet]),
+%    io:format("    Decoded json: ~p~n", [JsObj]),
+%    NewPacket = to_json({struct, [{foo, bar}, {rab, oof}]}),
+%    io:format("    Sending ~s to ~s:~b~n", [NewPacket, StrIP, Port]),
+%    case gen_udp:send(Socket, IP, Port, NewPacket) of
+%        ok -> ok;
+%        {error, Reason} -> io:format("    Send failed: ~p~n", [Reason])
+%    end,
+    NewState = case handle_telex(mk_telex(JsObj), {IP, Port}, State) of
+        {reply, JsReply, S} ->
+            gen_udp:send(Socket, IP, Port, JsReply),
+            S;
+        {noreply, S} -> S
     end,
-    {noreply, handle_telex(mk_telex(JsObj), {IP, Port, State})}.
+    {noreply, NewState}.
 
 
 
@@ -89,27 +98,27 @@ handle_info({udp, Socket, IP, Port, Packet}, State) ->
 %%% The main Telex handler
 %%% %%%
 
-%% handle_telex/2
-%% In general, takes a #telex record, tuple of sender and state info,
+%% handle_telex/3
+%% In general, takes a #telex record, an IPP, and state info,
 %% and returns a #switch record
 
 %% When we don't have a valid telex, drop it.
-handle_telex(undefined, {_,_,S}) -> S;
+handle_telex(undefined, _IPP, S) -> {noreply, S};
 
 %% When we don't yet know our public IP:PORT, complete bootstrap if possible
-handle_telex(T = #telex{dict=Dict}, {IP, Port,S=#switch{ipp=undefined}}) ->
+%% TODO: disregard if there is a _hop; don't want the wrong IP:PORT!
+handle_telex(T=#telex{dict=Dict},
+    IPP, S=#switch{ipp=undefined}) ->
     case orddict:find(<<"_to">>, Dict) of
         {ok, IPPStr} ->
-            [BinSelfIP, SelfPort] = binary:split(IPPStr, <<":">>),
-            % We now know our public IP:PORT, add it to our state, and continue
-            handle_telex(T, {IP, Port,
-                S#switch{ipp={ip_from_binary(BinSelfIP),
-                    list_to_integer(binary_to_list(SelfPort))}}});
-        error -> io:format("Still no public IP:PORT..."), S
+            error_logger:info_msg("Learned external IP:P=~s~n", [IPPStr]),
+            handle_telex(T, IPP, S#switch{ipp=ipp_from_binary(IPPStr)});
+        error ->
+            error_logger:info_msg("Received a Telex but still have no IP:P~n"),
+            {noreply, S}
     end;
 
-handle_telex(#telex{}, {_, _, S= #switch{}}) -> S.
-
+handle_telex(#telex{}, _IPP, S=#switch{}) -> {noreply, S}.
 
 
 %%% %%%
@@ -129,7 +138,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 handle_cast(Msg, State) ->
-    io:format("Received unknown cast ~p", [Msg]),
+    error_logger:info_msg("Received unknown cast ~p", [Msg]),
     {noreply, State}.
 
 
@@ -180,11 +189,12 @@ ip_to_list({A, B, C, D}) -> io_lib:format("~b.~b.~b.~b", [A, B, C, D]).
 
 %% ip_from_list/1
 %% Simply converts a string ipv4 address to tuple form
-ip_from_binary(IpStr) ->
+ipp_from_binary(IPPStr) ->
+    [IpStr, Port] = binary:split(IPPStr, <<":">>),
     Convert = fun(BinStr) -> list_to_integer(binary_to_list(BinStr)) end,
     [A, B, C, D] = lists:map(Convert,
         binary:split(IpStr, <<".">>, [global])),
-    {A, B, C, D}.
+    {{A, B, C, D}, list_to_integer(binary_to_list(Port))}.
 
 %% mk_telex/1
 %% Takes a JSON object returned by from_json
