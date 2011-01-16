@@ -12,8 +12,8 @@
     code_change/3, handle_cast/2]).
 
 % data utility API
--export([from_json/1, to_json/1, hash/1, hash_ipp/2, mk_telex/1,
-    ipp_from_binary/1]).
+-export([from_json/1, to_json/1, hash/1, hash_ipp/1, mk_telex/1,
+    binary_to_ipp/1, ipp_to_binary/1]).
 
 % testing API
 -export([handle_telex/3]).
@@ -112,7 +112,7 @@ handle_telex(T=#telex{dict=Dict},
     case orddict:find(<<"_to">>, Dict) of
         {ok, IPPStr} ->
             error_logger:info_msg("Learned external IP:P=~s~n", [IPPStr]),
-            handle_telex(T, IPP, S#switch{ipp=ipp_from_binary(IPPStr)});
+            handle_telex(T, IPP, S#switch{ipp=binary_to_ipp(IPPStr)});
         error ->
             error_logger:info_msg("Received a Telex but still have no IP:P~n"),
             {noreply, S}
@@ -176,12 +176,9 @@ to_hex(Digest) ->
 hash(Data) ->
     to_hex(crypto:sha(Data)).
 
-%% hash_ipp/2
-%% Takes a tuple-form IP and integer Port, produces a hash of the "IP:PORT"
-hash_ipp(IP, Port) ->
-    hash(lists:concat(
-        [ip_to_list(IP), ":", integer_to_list(Port)]
-    )).
+%% hash_ipp/1
+%% Takes a tuple-form IPP, produces the IP:P hash.
+hash_ipp(IPP) -> hash(ipp_to_binary(IPP)).
 
 %% ip_to_list/1
 %% Simply converts a tuple ipv4 address to a string/list
@@ -189,12 +186,15 @@ ip_to_list({A, B, C, D}) -> io_lib:format("~b.~b.~b.~b", [A, B, C, D]).
 
 %% ip_from_list/1
 %% Simply converts a string ipv4 address to tuple form
-ipp_from_binary(IPPStr) ->
+binary_to_ipp(IPPStr) ->
     [IpStr, Port] = binary:split(IPPStr, <<":">>),
     Convert = fun(BinStr) -> list_to_integer(binary_to_list(BinStr)) end,
     [A, B, C, D] = lists:map(Convert,
         binary:split(IpStr, <<".">>, [global])),
     {{A, B, C, D}, list_to_integer(binary_to_list(Port))}.
+
+ipp_to_binary({IP, Port}) ->
+    list_to_binary(lists:concat([ip_to_list(IP), ":", integer_to_list(Port)])).
 
 %% mk_telex/1
 %% Takes a JSON object returned by from_json
