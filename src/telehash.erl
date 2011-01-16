@@ -12,8 +12,8 @@
     code_change/3, handle_cast/2]).
 
 % data utility API
--export([from_json/1, to_json/1, hash/1, hash_ipp/1, mk_telex/1,
-    binary_to_ipp/1, ipp_to_binary/1]).
+-export([from_json/1, to_json/1, hash/1, mk_telex/1,
+    binary_to_ipp/1, ipp_to_binary/1, telex/1]).
 
 % testing API
 -export([handle_telex/3]).
@@ -51,7 +51,7 @@ init([Port]) ->
 
 bootstrap_packet() ->
     to_json({struct,
-        [{'+end', hash("bootstrap")}]
+        [{"+end", hash("bootstrap")}]
     }).
 
 
@@ -75,18 +75,12 @@ get_state(Pid) -> gen_server:call(Pid, get_state).
 
 handle_info({udp, Socket, IP, Port, Packet}, State) ->
     JsObj = (catch from_json(Packet)),
-%    StrIP = ip_to_list(IP),
-%    io:format("~s:~b sent: ~s", [StrIP, Port, Packet]),
-%    io:format("    Decoded json: ~p~n", [JsObj]),
-%    NewPacket = to_json({struct, [{foo, bar}, {rab, oof}]}),
-%    io:format("    Sending ~s to ~s:~b~n", [NewPacket, StrIP, Port]),
-%    case gen_udp:send(Socket, IP, Port, NewPacket) of
-%        ok -> ok;
-%        {error, Reason} -> io:format("    Send failed: ~p~n", [Reason])
-%    end,
+    IPP = {IP, Port},
+    error_logger:info_msg("<< ~s", [ipp_to_binary(IPP)]),
     NewState = case handle_telex(mk_telex(JsObj), {IP, Port}, State) of
         {reply, JsReply, S} ->
             gen_udp:send(Socket, IP, Port, JsReply),
+            error_logger:info_msg(">> ~s", [ipp_to_binary(IPP)]),
             S;
         {noreply, S} -> S
     end,
@@ -118,7 +112,17 @@ handle_telex(T=#telex{dict=Dict},
             {noreply, S}
     end;
 
-handle_telex(#telex{}, _IPP, S=#switch{}) -> {noreply, S}.
+handle_telex(T=#telex{}, IPP, S=#switch{}) ->
+    % TODO: Add checking the number of hops
+    case {has("+end", T), line_active(IPP, S)} of
+        % The remote End is trying to join the network; .see some Ends
+        {true, false} ->
+            % Find Ends close to the remote End
+            Sees = nearby(hash(IPP), hash(S), S),
+            Out = set(".see", lists:sublist(Sees, 5), telex(IPP)),
+            {reply, to_json(Out), S};
+        _ -> {noreply, S}
+    end.
 
 
 %%% %%%
@@ -160,7 +164,11 @@ handle_cast(Msg, State) ->
 %% > io:format(BS).
 %% {"+end":"abcd",".see":"1.23.58.63:8302"}
 %% ok
+%%
+%% It is worth mentioning that passing a #telex record will translate it to
+%% {struct, AList} form and then translate to JSON.
 from_json(BinStr) -> mochijson2:decode(BinStr).
+to_json(#telex{dict=Dict}) -> to_json({struct, orddict:to_list(Dict)});
 to_json(Term) -> iolist_to_binary(mochijson2:encode(Term)).
 
 %% to_hex/1
@@ -172,13 +180,12 @@ to_hex(Digest) ->
     list_to_binary(Str).
 
 %% hash/1
-%% Takes binary or iolist Data, produces a binary string of the SHA1 hex digest
-hash(Data) ->
+%% Takes various datatypes and produces a binary string of the SHA1 hex digest
+hash(#switch{hash=Hash}) when Hash /= undefined -> Hash;
+hash(#switch{ipp=IPP}) when IPP /= undefined -> hash(IPP);
+hash(IPP={{_,_,_,_},_}) -> hash(ipp_to_binary(IPP));
+hash(Data) when is_binary(Data) or is_list(Data) ->
     to_hex(crypto:sha(Data)).
-
-%% hash_ipp/1
-%% Takes a tuple-form IPP, produces the IP:P hash.
-hash_ipp(IPP) -> hash(ipp_to_binary(IPP)).
 
 %% ip_to_list/1
 %% Simply converts a tuple ipv4 address to a string/list
@@ -196,6 +203,11 @@ binary_to_ipp(IPPStr) ->
 ipp_to_binary({IP, Port}) ->
     list_to_binary(lists:concat([ip_to_list(IP), ":", integer_to_list(Port)])).
 
+
+%%% %%%
+%%% Telex data operations
+%%% %%%
+
 %% mk_telex/1
 %% Takes a JSON object returned by from_json
 %% Returns a more functional #telex record
@@ -203,3 +215,49 @@ mk_telex({struct, AList}) -> #telex{dict=orddict:from_list(AList)};
 %% If that doesn't work, return undefined. This usually happens if
 %% the JSON is invalid or it isn't an object (i.e. is an array or other element)
 mk_telex(_) -> undefined.
+
+%% telex/1
+%% Makes a brand new Telex setting the _to field to the given IPP
+%% TODO: Should also lookup the other End and at a _br field
+telex(ToIPP) ->
+    set("_to", ipp_to_binary(ToIPP), #telex{}).
+
+%% set/3
+%% Takes a key, value, and telex record, adding the key:val to the telex
+set(Key, Val, Tel=#telex{dict=Dict}) ->
+    Tel#telex{dict=orddict:store(Key,Val,Dict)}.
+
+%% has/2
+%% Takes a key and #telex and returns true/false depending on whether the given
+%% #telex includes the given key.
+has(Key, #telex{dict=Dict}) ->
+    orddict:is_key(Key, Dict).
+
+%% line_active/2
+%% Takes an IPP and a #switch, then determines if there is a recorded #end and
+%% returns true if it both exists and has a defined line
+line_active(IPP, #switch{ends=Ends}) ->
+    case orddict:find(hash(IPP), Ends) of
+        {ok, End} -> End#rend.line /= undefined;
+        error -> false
+    end.
+
+%% nearby/3
+%% Takes an End, a Vis starting point, and a #switch. Returns all the #rends in
+%% the #switch whose distance from the End is less than the distance between the %% End and the Vis. TODO: clarify the documentation here.
+nearby(End, Vis, S=#switch{ends=Ends}) ->
+    Dist = crypto:exor(End, Vis),
+    Sees = orddict:filter(
+        fun(Hash, _PossibleEnd) ->
+            crypto:exor(End, Hash) < Dist
+        end, Ends),
+    lists:map(fun(H) -> get_ipp(H, S) end, orddict:fetch_keys(Sees)).
+
+%% get_ipp/2
+%% Takes a Hash for an end and a #switch. Finds the corresponding End in the
+%% #switch and returns its IPP if it exists, undefined if it doesn't.
+get_ipp(Hash, #switch{ends=Ends}) ->
+    case orddict:find(Hash, Ends) of
+        {ok, End} -> End#rend.ipp;
+        error -> undefined
+    end.
