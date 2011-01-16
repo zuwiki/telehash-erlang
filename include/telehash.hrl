@@ -7,12 +7,12 @@
 % lines: A list of active lines to other switches, with their taps. See below.
 % buckets: Four lists of Ends sorted according to their proximity. See below.
 % callbacks: An a-list of taps (for this Switch) with funs to call(?)
--record(switch, {ipp,
-                       hash,
-                       socket,
-                       lines=[],
-                       buckets={[],[],[],[]},
-                       callbacks=[]}).
+-record(switch,   {ipp,
+                   hash,
+                   socket,
+                   lines=[],
+                   buckets={[],[],[],[]},
+                   callbacks=[]}).
 
 -record(tap, {rules=[]}).
 
