@@ -5,7 +5,7 @@
 -behaviour(gen_server).
 
 % server API
--export([start_link/0, start_link/1, stop/1]).
+-export([start_link/0, start_link/1, stop/1, state/1]).
 
 % gen_server
 -export([init/1, handle_info/2, handle_call/3, terminate/2,
@@ -61,8 +61,12 @@ bootstrap_packet(IPP) ->
 
 stop(Pid) -> gen_server:call(Pid, terminate).
 
+state(Pid) -> gen_server:call(Pid, state).
+
 handle_call(terminate, _From, State) ->
-    {stop, normal, ok, State}.
+    {stop, normal, ok, State};
+handle_call(state, _From, State) ->
+    {reply, State, State}.
 
 terminate(_, State) ->
     catch gen_udp:close(State#switch.socket),
@@ -117,7 +121,10 @@ handle_telex(T=#telex{dict=Dict},
     case orddict:find(<<"_to">>, Dict) of
         {ok, IPPStr} ->
             error_logger:info_msg("Learned external IP:P=~s~n", [IPPStr]),
-            handle_telex(T, IPP, S#switch{ipp=binary_to_ipp(IPPStr)});
+            handle_telex(T, IPP, S#switch{
+                ipp=binary_to_ipp(IPPStr),
+                hash=hash(IPPStr)
+            });
         error ->
             error_logger:info_msg("Received a Telex but still have no IP:P~n"),
             {noreply, S}
@@ -126,12 +133,20 @@ handle_telex(T=#telex{dict=Dict},
 handle_telex(T=#telex{}, IPP, S=#switch{}) ->
     % TODO: Add checking the number of hops
     case {has("+end", T), line_active(IPP, S)} of
-        % The remote End is trying to join the network; .see some Ends
+        % The remote End is trying to join the network
         {true, false} ->
             % Find Ends close to the remote End
             Sees = nearby(hash(IPP), hash(S), S),
-            Out = set(".see", lists:sublist(Sees, 5), telex(IPP)),
-            {reply, to_json(Out), S};
+            % .see some other ends
+            Out = set(".see", lists:sublist(Sees, 5), 
+                % Try _ring'ing
+                % TODO: check for used _ring values; only needs to be unique
+                set("_ring", random:uniform(32768), telex(IPP))
+            ),
+            % Start tracking this end
+            NewEnd = #rend{ipp=IPP},
+            NS = S#switch{ends=orddict:store(hash(IPP), NewEnd, S#switch.ends)},
+            {reply, to_json(Out), NS};
         _ -> {noreply, S}
     end.
 
@@ -244,7 +259,10 @@ nearby(End, Vis, S=#switch{ends=Ends}) ->
         fun(Hash, _PossibleEnd) ->
             crypto:exor(End, Hash) < Dist
         end, Ends),
-    lists:map(fun(H) -> get_ipp(H, S) end, orddict:fetch_keys(Sees)).
+    lists:map(
+        fun(H) -> ipp_to_binary(get_ipp(H, S)) end,
+        orddict:fetch_keys(Sees)
+    ).
 
 %% get_ipp/2
 %% Takes a Hash for an end and a #switch. Finds the corresponding End in the
