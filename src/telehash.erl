@@ -12,7 +12,7 @@
     code_change/3, handle_cast/2]).
 
 % data utility API
--export([from_json/1, to_json/1, hash/1, mk_telex/1,
+-export([from_json/1, to_json/1, hash/1, mk_telex/1, to_hex/1,
     binary_to_ipp/1, ipp_to_binary/1, telex/1, set/3, has/2]).
 
 % testing API
@@ -191,7 +191,7 @@ hash(#switch{hash=Hash}) when Hash /= undefined -> Hash;
 hash(#switch{ipp=IPP}) when IPP /= undefined -> hash(IPP);
 hash(IPP={{_,_,_,_},_}) -> hash(ipp_to_binary(IPP));
 hash(Data) when is_binary(Data) or is_list(Data) ->
-    to_hex(crypto:sha(Data)).
+    crypto:sha(Data).
 
 %% ip_to_list/1
 %% Simply converts a tuple ipv4 address to a string/list
