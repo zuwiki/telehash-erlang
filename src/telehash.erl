@@ -132,9 +132,9 @@ handle_telex(T=#telex{dict=Dict},
 
 handle_telex(T=#telex{}, IPP, S=#switch{}) ->
     % TODO: Add checking the number of hops
-    case {has("+end", T), line_active(IPP, S)} of
+    case {has("+end",T), line_active(IPP,S), has(".see",T), has("_ring",T)} of
         % The remote End is trying to join the network
-        {true, false} ->
+        {true, false, _, _} ->
             % Find Ends close to the remote End
             Sees = nearby(hash(IPP), hash(S), S),
             % .see some other ends
@@ -147,6 +147,7 @@ handle_telex(T=#telex{}, IPP, S=#switch{}) ->
             NewEnd = #rend{ipp=IPP},
             NS = S#switch{ends=orddict:store(hash(IPP), NewEnd, S#switch.ends)},
             {reply, to_json(Out), NS};
+        % Don't know what to do with this telex; drop it
         _ -> {noreply, S}
     end.
 
