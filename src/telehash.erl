@@ -13,7 +13,8 @@
 
 % data utility API
 -export([from_json/1, to_json/1, hash/1, mk_telex/1, to_hex/1,
-    binary_to_ipp/1, ipp_to_binary/1, telex/1, set/3, has/2]).
+    binary_to_ipp/1, ipp_to_binary/1, telex/1, set/3, has/2,
+    store_end/2]).
 
 % testing API
 -export([handle_telex/3]).
@@ -144,8 +145,8 @@ handle_telex(T=#telex{}, IPP, S=#switch{}) ->
                 set("_ring", random:uniform(32768), telex(IPP))
             ),
             % Start tracking this end
-            NewEnd = #rend{ipp=IPP},
-            NS = S#switch{ends=orddict:store(hash(IPP), NewEnd, S#switch.ends)},
+            NewEnd = #endpoint{ipp=IPP},
+            NS = store_end(NewEnd, S),
             {reply, to_json(Out), NS};
         % Don't know what to do with this telex; drop it
         _ -> {noreply, S}
@@ -247,13 +248,13 @@ has(Key, #telex{dict=Dict}) ->
 %% returns true if it both exists and has a defined line
 line_active(IPP, #switch{ends=Ends}) ->
     case orddict:find(hash(IPP), Ends) of
-        {ok, End} -> End#rend.line /= undefined;
+        {ok, End} -> End#endpoint.line /= undefined;
         error -> false
     end.
 
 %% nearby/3
-%% Takes an End, a Vis starting point, and a #switch. Returns all the #rends in
-%% the #switch whose distance from the End is less than the distance between the %% End and the Vis. TODO: clarify the documentation here.
+%% Takes an End, a Vis starting point, and a #switch. Returns all the #endpoint
+%% of #switch whose distance from the End is less than the distance between the %% End and the Vis. TODO: clarify the documentation here.
 nearby(End, Vis, S=#switch{ends=Ends}) ->
     Dist = crypto:exor(End, Vis),
     Sees = orddict:filter(
@@ -270,6 +271,9 @@ nearby(End, Vis, S=#switch{ends=Ends}) ->
 %% #switch and returns its IPP if it exists, undefined if it doesn't.
 get_ipp(Hash, #switch{ends=Ends}) ->
     case orddict:find(Hash, Ends) of
-        {ok, End} -> End#rend.ipp;
+        {ok, End} -> End#endpoint.ipp;
         error -> undefined
     end.
+
+store_end(End=#endpoint{ipp=IPP}, S=#switch{ends=Ends}) ->
+    S#switch{ends=orddict:store(hash(IPP), End, Ends)}.

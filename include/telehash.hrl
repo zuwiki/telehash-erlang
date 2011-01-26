@@ -16,4 +16,4 @@
 
 -record(telex, {dict=orddict:new()}).
 
--record(rend, {ipp, line}).
+-record(endpoint, {ipp, hash, line}).
