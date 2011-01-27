@@ -25,11 +25,15 @@ tests() ->
     test_hash_ipp,
     test_hash_string,
     test_hash_switch,
-    % Switch record utilities
+    % Record utilities
     test_switch_store_endpoint,
     test_hash_distance
     ].
 
+
+%%% ----
+%%% Let's kick things off with some simple data utility tests
+%%% ----
 
 test_hash_string() ->
     ExpectedBinDigest = crypto:sha("this is a test"),
@@ -46,6 +50,11 @@ test_hash_switch() ->
     ExpectedBinDigest = telehash:hash(#switch{ipp={{74,125,127,99}, 42424}}),
     "telehash:hash(S=#switch{}) hashes the switch's IPP".
 
+
+%%% ----
+%%% Time to get a bit more serious: now it's record data
+%%% ----
+
 test_switch_store_endpoint() ->
     End1 = #endpoint{ipp={{1,2,3,4},5555}},
     End2 = #endpoint{ipp={{5,4,3,2},1111}},
@@ -58,6 +67,11 @@ test_switch_store_endpoint() ->
     Switch2 = telehash:store_end(End2, Switch1),
     ExpectedEnds = Switch2#switch.ends,
     "telehash:store_end(E=#endpoint{}, S=#switch{}) stores end by hash".
+
+
+%%% ----
+%%% Okay, now some math-y type things that are more functionally important
+%%% ----
 
 test_hash_distance() ->
     Hash1 = telehash:hash({{1,2,3,4},5555}),
