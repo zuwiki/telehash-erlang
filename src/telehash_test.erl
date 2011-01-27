@@ -25,6 +25,8 @@ tests() ->
     test_hash_ipp,
     test_hash_string,
     test_hash_switch,
+    test_to_json_term,
+    test_to_json_telex,
     % Record utilities
     test_switch_store_endpoint,
     test_hash_distance
@@ -35,26 +37,37 @@ tests() ->
 %%% Let's kick things off with some simple data utility tests
 %%% ----
 
+%% telehash:hash/1 tests
 test_hash_string() ->
     ExpectedBinDigest = crypto:sha("this is a test"),
     ExpectedBinDigest = telehash:hash("this is a test"),
     "telehash:hash(String) is identical to crypto:sha(String)".
-
 test_hash_ipp() ->
     ExpectedBinDigest = crypto:sha("74.125.127.99:42424"),
     ExpectedBinDigest = telehash:hash({{74,125,127,99}, 42424}),
     "telehash:hash(IPP) hashes the string form IP:PORT".
-
 test_hash_switch() ->
     ExpectedBinDigest = crypto:sha("74.125.127.99:42424"),
     ExpectedBinDigest = telehash:hash(#switch{ipp={{74,125,127,99}, 42424}}),
     "telehash:hash(S=#switch{}) hashes the switch's IPP".
+
+%% telehash:to_json/1 tests
+test_to_json_term() ->
+    ExpectedJson = <<"{\"foo\":\"bar\",\"baz\":3,\"zag\":[3,2,4]}">>,
+    ExpectedJson = telehash:to_json({struct,
+            [{"foo", <<"bar">>},
+             {"baz", 3},
+             {"zag", [3,2,4]}]}),
+    "telehash:to_json(Term) makes JSON bitstr given {struct,[{k,v}]} term".
+test_to_json_telex() ->
+    throw('NOT_IMPLEMENTED').
 
 
 %%% ----
 %%% Time to get a bit more serious: now it's record data
 %%% ----
 
+%% #switch{} manipulation tests
 test_switch_store_endpoint() ->
     End1 = #endpoint{ipp={{1,2,3,4},5555}},
     End2 = #endpoint{ipp={{5,4,3,2},1111}},
@@ -73,7 +86,8 @@ test_switch_store_endpoint() ->
 %%% Okay, now some math-y type things that are more functionally important
 %%% ----
 
+%% DHT metric tests
 test_hash_distance() ->
     Hash1 = telehash:hash({{1,2,3,4},5555}),
     Hash2 = telehash:hash({{5,4,3,2},1111}),
-    throw("Not implemented.").
+    throw('NOT_IMPLEMENTED').
